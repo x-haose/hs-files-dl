@@ -13,7 +13,7 @@ dependencies = [
     "alive-progress>=2.4.1",
     "rich>=12.5.1",
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.8"
 license = {text = "MIT"}
 
 [build-system]
