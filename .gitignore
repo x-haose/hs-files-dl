@@ -9,6 +9,7 @@ Icon
 
 # pdm
 .pdm.toml
+pdm.lock
 
 # Thumbnails
 ._*
