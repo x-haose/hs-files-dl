@@ -75,7 +75,7 @@ class HSDownloader(object):
         await self.get_head_headers()
 
         s_time = time.perf_counter()
-        logger.success(f"开始下载资源，总大小：{self.file_size}")
+        logger.info(f"开始下载资源，总大小：{self.file_size}")
 
         # 开始下载任务
         result = await self.start_download()

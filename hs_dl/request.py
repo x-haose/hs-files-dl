@@ -110,7 +110,7 @@ class Request(object):
         :return: 返回响应
         """
         if self.retrys_count < 1:
-            return await self._request()
+            return await self._request(stream)
 
         # 设置重试的等候时间
         if self.retries_delay:
