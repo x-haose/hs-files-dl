@@ -63,6 +63,10 @@ class HSDownloader(object):
         self.target_size = self.block_number * 10 * 1024 * 1024
         self.task_id = None
 
+        logger.remove()
+        logger.add(f"{save_path}.log", level="DEBUG")
+        logger.add(sys.stderr, level="INFO")
+
     async def start(self):
         """
         开始下载
@@ -186,7 +190,7 @@ class HSDownloader(object):
         :param end: 结束范围
         :return: 返回内容的数据
         """
-        # logger.info(f"开始下载：bytes={start}-{end}")
+        logger.debug(f"开始下载：bytes={start}-{end}")
 
         if end:
             headers = dict(self.headers, Range=f"bytes={start}-{end}")
