@@ -63,6 +63,10 @@ class HSDownloader(object):
         self.target_size = self.block_number * 10 * 1024 * 1024
         self.task_id = None
 
+        logger.remove()
+        logger.add(f"{save_path}.log", level="DEBUG")
+        logger.add(sys.stderr, level="INFO")
+
     async def start(self):
         """
         开始下载
@@ -71,7 +75,7 @@ class HSDownloader(object):
         await self.get_head_headers()
 
         s_time = time.perf_counter()
-        logger.success(f"开始下载资源，总大小：{self.file_size}")
+        logger.info(f"开始下载资源，总大小：{self.file_size}")
 
         # 开始下载任务
         result = await self.start_download()
@@ -161,7 +165,6 @@ class HSDownloader(object):
         :return:
         """
         return self._head_headers.get('Accept-Ranges') is not True
-        # return False
 
     @property
     def content_length(self):
@@ -187,6 +190,8 @@ class HSDownloader(object):
         :param end: 结束范围
         :return: 返回内容的数据
         """
+        logger.debug(f"开始下载：bytes={start}-{end}")
+
         if end:
             headers = dict(self.headers, Range=f"bytes={start}-{end}")
         else:

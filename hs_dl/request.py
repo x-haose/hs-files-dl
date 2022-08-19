@@ -110,7 +110,7 @@ class Request(object):
         :return: 返回响应
         """
         if self.retrys_count < 1:
-            return await self._request()
+            return await self._request(stream)
 
         # 设置重试的等候时间
         if self.retries_delay:
@@ -135,7 +135,7 @@ class Request(object):
         :return: 返回响应
         """
         # 打印一个DEBUG级别的日志
-        # logger.debug(f"[{self.method}] {self.url}")
+        logger.debug(f"[{self.method}] {self.url}")
 
         # 锁定信号量
         if self.sem:
