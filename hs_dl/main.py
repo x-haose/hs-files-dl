@@ -7,8 +7,29 @@ from operator import itemgetter
 
 import aiofiles
 from loguru import logger
-
+from rich.progress import (
+    BarColumn,
+    DownloadColumn,
+    Progress,
+    Console,
+    TextColumn,
+    TimeRemainingColumn,
+    TransferSpeedColumn,
+)
 from hs_dl.request import Request, RequestException
+
+progress = Progress(
+    TextColumn("[bold blue]{task.fields[filename]}", justify="right"),
+    BarColumn(bar_width=None),
+    "[progress.percentage]{task.percentage:>3.1f}%",
+    "•",
+    DownloadColumn(),
+    "•",
+    TransferSpeedColumn(),
+    "•",
+    TimeRemainingColumn(),
+    console=Console(record=True)
+)
 
 
 def format_size(filesize: float):
@@ -40,6 +61,7 @@ class HSDownloader(object):
 
         self.block_number = 32
         self.target_size = self.block_number * 10 * 1024 * 1024
+        self.task_id = None
 
     async def start(self):
         """
@@ -89,12 +111,16 @@ class HSDownloader(object):
             block_size = 10 * 1024 * 1024
             block_number = math.ceil(self.content_length / block_size)
 
+        if not self.accept_ranges:
+            block_size = 0
+            block_number = 1
+
         # 计算每个任务的参数，存到字典中
         args_dict = dict()
         for index in range(block_number):
             s = index * block_size if index == 0 else args_dict.get(index - 1).get('e') + 1
             e = s + block_size if index < block_number - 1 else self.content_length
-            args_dict[index] = {"s": s, "e": e}
+            args_dict[index] = {"s": s, "e": e if self.accept_ranges else None}
 
         # 转换成元组列表
         args = [
@@ -104,7 +130,11 @@ class HSDownloader(object):
 
         # 开启多任务
         tasks = itertools.starmap(self.get_content, args)
+        progress.start()
+        self.task_id = progress.add_task('', filename="总进度", total=self.content_length)
         result = await asyncio.gather(*tasks)
+        progress.stop()
+
         return sorted(result, key=itemgetter('index'))
 
     async def get_head_headers(self):
@@ -162,15 +192,25 @@ class HSDownloader(object):
             headers = dict(self.headers, Range=f"bytes={start}-{end}")
         else:
             headers = self.headers.copy()
+
+        end = end or self.content_length
+        task_id = progress.add_task("", filename=f"任务: {index}", total=end - start)
+
         req = Request("GET", self.url, sem=self._sem, headers=headers)
         try:
-            resp = await req.request()
+            content = b''
+            resp = await req.request(stream=True)
+            async for data in resp.aiter_bytes():
+                content += data
+                progress.update(task_id, advance=len(data))
+                progress.update(self.task_id, advance=len(data))
+
         except RequestException:
             return self.network_error_exit()
         finally:
             await req.close()
 
-        return {'index': index, 'content': resp.content}
+        return {'index': index, 'content': content}
 
     def network_error_exit(self):
         """
