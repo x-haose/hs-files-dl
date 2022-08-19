@@ -186,7 +186,7 @@ class HSDownloader(object):
         :param end: 结束范围
         :return: 返回内容的数据
         """
-        logger.info(f"开始下载：bytes={start}-{end}")
+        # logger.info(f"开始下载：bytes={start}-{end}")
 
         if end:
             headers = dict(self.headers, Range=f"bytes={start}-{end}")
