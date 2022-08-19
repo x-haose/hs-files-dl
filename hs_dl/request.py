@@ -1,4 +1,3 @@
-import functools
 import asyncio
 from dataclasses import dataclass, field
 from typing import Union, Dict
@@ -104,7 +103,7 @@ class Request(object):
         else:
             logger.error(f"{log_msg} 第{attempt_number}次重试")
 
-    async def request(self, stream=False) -> Response:
+    async def request(self) -> Response:
         """
         使用httpx发起请求 带重试机制
         :return: 返回响应
@@ -125,29 +124,27 @@ class Request(object):
             retry_error_callback=self.retry_handler,
             wait=wait
         )
-
-        resp = await r.wraps(functools.partial(self._request, stream))()
+        resp = await r.wraps(self._request)()
         return resp
 
-    async def _request(self, stream=False) -> Response:
+    async def _request(self) -> Response:
         """
         使用httpx发起请求
         :return: 返回响应
         """
         # 打印一个DEBUG级别的日志
-        # logger.debug(f"[{self.method}] {self.url}")
+        logger.debug(f"[{self.method}] {self.url}")
 
         # 锁定信号量
         if self.sem:
             await self.sem.acquire()
 
         # 进行请求，并获取响应
-        request = self.session.build_request(
+        response = await self.session.request(
             self.method,
             self.url,
             json=self.json,
         )
-        response = await self.session.send(request, stream=stream)
 
         # 释放信号量
         if self.sem:
