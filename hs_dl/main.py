@@ -3,7 +3,9 @@ import math
 import sys
 import itertools
 import time
+from datetime import datetime
 from operator import itemgetter
+from pathlib import Path
 
 import aiofiles
 from loguru import logger
@@ -16,20 +18,9 @@ from rich.progress import (
     TimeRemainingColumn,
     TransferSpeedColumn,
 )
-from hs_dl.request import Request, RequestException
+from rich.table import Table
 
-progress = Progress(
-    TextColumn("[bold blue]{task.fields[filename]}", justify="right"),
-    BarColumn(bar_width=None),
-    "[progress.percentage]{task.percentage:>3.1f}%",
-    "•",
-    DownloadColumn(),
-    "•",
-    TransferSpeedColumn(),
-    "•",
-    TimeRemainingColumn(),
-    console=Console(record=True)
-)
+from hs_dl.request import Request, RequestException
 
 
 def format_size(filesize: float):
@@ -47,14 +38,28 @@ def format_size(filesize: float):
 
 class HSDownloader(object):
 
-    def __init__(self, url: str, save_path: str, concurrency: int = 64):
+    def __init__(
+            self,
+            url: str,
+            save_path: str = None,
+            save_name: str = None,
+            concurrency: int = 64
+    ):
         """
         :param url: 要下载的地址
-        :param save_path: 保存的路径
+        :param save_path: 保存的文件路径
+        :param save_path: 保存的文件名字
         :param concurrency: 并发的数量
         """
         self.url = url
-        self.save_path = save_path
+        # 默认下载路径为当前目录下单downloads文件夹
+        self.save_path = Path(save_path or 'downloads').absolute()
+        # 文件名默认从url中获取
+        self.save_name = save_name or Path(url).name
+        # 路径不存在则创建
+        if not self.save_path.exists():
+            self.save_path.mkdir(parents=True)
+
         self.headers = {}
         self._sem = asyncio.Semaphore(concurrency)
         self._head_headers = None
@@ -63,9 +68,47 @@ class HSDownloader(object):
         self.target_size = self.block_number * 10 * 1024 * 1024
         self.task_id = None
 
+        # 设置日志文件夹，不存在则创建
+        self.log_path = Path("logs") / f"{datetime.now().date().isoformat()}.log"
+        if not self.log_path.parent.exists():
+            self.log_path.parent.mkdir(parents=True)
+
+        # 初始化日志
         logger.remove()
-        logger.add(f"{save_path}.log", level="DEBUG")
-        logger.add(sys.stderr, level="INFO")
+        logger.add(self.log_path, level="DEBUG")
+
+        # 初始化rich控制台
+        self.console = Console(record=True)
+        # 初始化rich进度条
+        self.progress = Progress(
+            TextColumn("[bold blue]{task.fields[filename]}", justify="right"),
+            BarColumn(bar_width=None),
+            "[progress.percentage]{task.percentage:>3.1f}%",
+            "•",
+            DownloadColumn(),
+            "•",
+            TransferSpeedColumn(),
+            "•",
+            TimeRemainingColumn(),
+            console=self.console
+        )
+
+    def print_download_info(self):
+        """
+        打印下载信息
+        :return:
+        """
+        headers = ["资源名字", "资源路径", "日志文件路径", "是否允许断点续传", "资源总大小"]
+        datas = [
+            self.save_name,
+            str(self.save_path / self.save_name),
+            str(self.log_path.absolute()),
+            '是' if self.accept_ranges else '否',
+            self.file_size
+        ]
+        table = Table(*headers, show_header=True, header_style="bold magenta")
+        table.add_row(*datas)
+        self.console.print(table)
 
     async def start(self):
         """
@@ -75,7 +118,14 @@ class HSDownloader(object):
         await self.get_head_headers()
 
         s_time = time.perf_counter()
-        logger.info(f"开始下载资源，总大小：{self.file_size}")
+        logger.info(
+            f"开始下载资源：\n"
+            f"资源名字：{self.save_name}\n"
+            f"资源路径：{self.save_path / self.save_name}\n"
+            f"是否允许断点续传：{self.accept_ranges}\n"
+            f"总大小：{self.file_size}"
+        )
+        self.print_download_info()
 
         # 开始下载任务
         result = await self.start_download()
@@ -86,10 +136,10 @@ class HSDownloader(object):
         average_speed = self.content_length / (e_time - s_time)
         average_speed = format_size(average_speed)
 
-        logger.success(f"下载成功, 总用时：{e_time - s_time:.3f}s 平均速度：{average_speed}/s")
+        self.console.print(f"下载成功, 总用时：{e_time - s_time:.3f}s 平均速度：{average_speed}/s")  
 
         # 保存文件
-        await self.save_file(self.save_path, b''.join([d['content'] for d in result]))
+        await self.save_file(self.save_path / self.save_name, b''.join([d['content'] for d in result]))
 
     async def save_file(self, filepath, content):
         """
@@ -134,10 +184,10 @@ class HSDownloader(object):
 
         # 开启多任务
         tasks = itertools.starmap(self.get_content, args)
-        progress.start()
-        self.task_id = progress.add_task('', filename="总进度", total=self.content_length)
+        self.progress.start()
+        self.task_id = self.progress.add_task('', filename="总进度", total=self.content_length)
         result = await asyncio.gather(*tasks)
-        progress.stop()
+        self.progress.stop()
 
         return sorted(result, key=itemgetter('index'))
 
@@ -198,7 +248,7 @@ class HSDownloader(object):
             headers = self.headers.copy()
 
         end = end or self.content_length
-        task_id = progress.add_task("", filename=f"任务: {index}", total=end - start)
+        task_id = self.progress.add_task("", filename=f"任务: {index}", total=end - start)
 
         req = Request("GET", self.url, sem=self._sem, headers=headers)
         try:
@@ -206,8 +256,8 @@ class HSDownloader(object):
             resp = await req.request(stream=True)
             async for data in resp.aiter_bytes():
                 content += data
-                progress.update(task_id, advance=len(data))
-                progress.update(self.task_id, advance=len(data))
+                self.progress.update(task_id, advance=len(data))
+                self.progress.update(self.task_id, advance=len(data))
 
         except RequestException:
             return self.network_error_exit()
@@ -227,7 +277,7 @@ class HSDownloader(object):
 
 async def main():
     url = "https://download.virtualbox.org/virtualbox/6.1.36/VirtualBox-6.1.36-152435-Win.exe"
-    download = HSDownloader(url, "VirtualBox-6.1.36-152435-Win.exe")
+    download = HSDownloader(url)
     await download.start()
 
 
