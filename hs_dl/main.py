@@ -7,6 +7,7 @@ from datetime import datetime
 from operator import itemgetter
 from pathlib import Path
 
+import fire
 import aiofiles
 from loguru import logger
 from rich.progress import (
@@ -136,7 +137,7 @@ class HSDownloader(object):
         average_speed = self.content_length / (e_time - s_time)
         average_speed = format_size(average_speed)
 
-        self.console.print(f"下载成功, 总用时：{e_time - s_time:.3f}s 平均速度：{average_speed}/s")  
+        self.console.print(f"下载成功, 总用时：{e_time - s_time:.3f}s 平均速度：{average_speed}/s")
 
         # 保存文件
         await self.save_file(self.save_path / self.save_name, b''.join([d['content'] for d in result]))
@@ -275,11 +276,25 @@ class HSDownloader(object):
         sys.exit(-1)
 
 
-async def main():
-    url = "https://download.virtualbox.org/virtualbox/6.1.36/VirtualBox-6.1.36-152435-Win.exe"
-    download = HSDownloader(url)
+async def main(
+        url: str,
+        save_path: str = None,
+        save_name: str = None
+):
+    """
+    高速下载普通文件
+    :param url: 下载地址
+    :param save_path: 保存的文件夹，默认为./downloads文件夹
+    :param save_name: 保存至的文件名， 默认从url中获取
+    :return:
+    """
+    download = HSDownloader(
+        url,
+        save_path=save_path,
+        save_name=save_name
+    )
     await download.start()
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    fire.Fire(main)
