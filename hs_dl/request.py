@@ -109,6 +109,9 @@ class Request(object):
         使用httpx发起请求 带重试机制
         :return: 返回响应
         """
+        # 打印一个DEBUG级别的日志
+        logger.debug(f"[{self.method}] {self.url}")
+        
         if self.retrys_count < 1:
             return await self._request(stream)
 
@@ -134,9 +137,6 @@ class Request(object):
         使用httpx发起请求
         :return: 返回响应
         """
-        # 打印一个DEBUG级别的日志
-        logger.debug(f"[{self.method}] {self.url}")
-
         # 锁定信号量
         if self.sem:
             await self.sem.acquire()
