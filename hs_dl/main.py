@@ -1,11 +1,13 @@
 import asyncio
+import cgi
 import math
-import sys
+import os
 import itertools
 import time
 from datetime import datetime
 from operator import itemgetter
 from pathlib import Path
+from urllib.parse import unquote
 
 import fire
 import aiofiles
@@ -42,26 +44,29 @@ class HSDownloader(object):
     def __init__(
             self,
             url: str,
+            *,
             save_path: str = None,
             save_name: str = None,
-            concurrency: int = 64
+            concurrency: int = 64,
+            headers: dict = None
     ):
         """
         :param url: 要下载的地址
         :param save_path: 保存的文件路径
         :param save_path: 保存的文件名字
         :param concurrency: 并发的数量
+        :param headers: 请求头
         """
         self.url = url
         # 默认下载路径为当前目录下单downloads文件夹
         self.save_path = Path(save_path or 'downloads').absolute()
         # 文件名默认从url中获取
-        self.save_name = save_name or Path(url).name
+        self.save_name = save_name or unquote(Path(url).name)
         # 路径不存在则创建
         if not self.save_path.exists():
             self.save_path.mkdir(parents=True)
 
-        self.headers = {}
+        self.headers = headers or {}
         self._sem = asyncio.Semaphore(concurrency)
         self._head_headers = None
 
@@ -99,6 +104,7 @@ class HSDownloader(object):
         打印下载信息
         :return:
         """
+        self.console.rule("开始下载")
         headers = ["资源名字", "资源路径", "日志文件路径", "是否允许断点续传", "资源总大小"]
         datas = [
             self.save_name,
@@ -166,7 +172,7 @@ class HSDownloader(object):
             block_size = 10 * 1024 * 1024
             block_number = math.ceil(self.content_length / block_size)
 
-        if not self.accept_ranges:
+        if not self.accept_ranges or self.content_length == 0:
             block_size = 0
             block_number = 1
 
@@ -197,13 +203,16 @@ class HSDownloader(object):
         获取HEAD请求的响应头
         :return:
         """
-        req = Request('HEAD', self.url, sem=self._sem)
+        req = Request('HEAD', self.url, sem=self._sem, headers=self.headers)
         try:
             resp = await req.request()
         except RequestException:
-            return self.network_error_exit()
+            self._head_headers = {}
         else:
+            if 'Content-Disposition' in resp.headers:
+                self.save_name = cgi.parse_header(resp.headers.get('Content-Disposition'))[1]['filename']
             self._head_headers = resp.headers
+            await resp.aclose()
         finally:
             await req.close()
 
@@ -215,7 +224,7 @@ class HSDownloader(object):
         是否接受断点续传
         :return:
         """
-        return self._head_headers.get('Accept-Ranges') is not True
+        return self._head_headers.get('Accept-Ranges') is not None
 
     @property
     def content_length(self):
@@ -223,7 +232,7 @@ class HSDownloader(object):
         获取资源总大小
         :return:
         """
-        return int(self._head_headers.get('Content-Length'))
+        return int(self._head_headers.get('Content-Length', 0))
 
     @property
     def file_size(self):
@@ -262,6 +271,8 @@ class HSDownloader(object):
 
         except RequestException:
             return self.network_error_exit()
+        else:
+            await resp.aclose()
         finally:
             await req.close()
 
@@ -273,28 +284,34 @@ class HSDownloader(object):
         :return:
         """
         logger.critical(f"网络请求发生错误，下载失败！")
-        sys.exit(-1)
+        self.console.log("网络请求发生错误，下载失败！", highlight=True)
+        getattr(os, '_exit')(1)
 
 
 async def main(
         url: str,
+        *,
         save_path: str = None,
-        save_name: str = None
+        save_name: str = None,
+        headers: dict = None,
 ):
     """
     高速下载普通文件
     :param url: 下载地址
     :param save_path: 保存的文件夹，默认为./downloads文件夹
     :param save_name: 保存至的文件名， 默认从url中获取
+    :param headers: 请求头
     :return:
     """
     download = HSDownloader(
         url,
         save_path=save_path,
-        save_name=save_name
+        save_name=save_name,
+        headers=headers
     )
     await download.start()
 
 
 if __name__ == '__main__':
-    fire.Fire(main)
+    asyncio.run(main("http://10.0.0.237:6789/test_dl", headers={"user-agent": "Windows"}))
+    # fire.Fire(main)
