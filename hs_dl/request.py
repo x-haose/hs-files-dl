@@ -34,8 +34,8 @@ class Request(object):
     url: str
     # 信号量，控制并发
     sem: asyncio.Semaphore = field(default=None)
-    # 请求的JSON数据
-    json: dict = field(default=None)
+    # 请求的数据
+    data: dict = field(default=None)
     # 请求UA
     user_agent: str = field(default=None)
     # 请求头
@@ -145,7 +145,7 @@ class Request(object):
         request = self.session.build_request(
             self.method,
             self.url,
-            json=self.json,
+            data=self.data,
         )
         response = await self.session.send(request, stream=stream)
 

@@ -24,6 +24,7 @@ from rich.progress import (
 from rich.table import Table
 
 from hs_dl.request import Request, RequestException
+from hs_dl.curl import CurlParser
 
 
 def format_size(filesize: float):
@@ -48,7 +49,9 @@ class HSDownloader(object):
             save_path: str = None,
             save_name: str = None,
             concurrency: int = 64,
-            headers: dict = None
+            headers: dict = None,
+            method: str = None,
+            data: dict = None
     ):
         """
         :param url: 要下载的地址
@@ -56,17 +59,24 @@ class HSDownloader(object):
         :param save_path: 保存的文件名字
         :param concurrency: 并发的数量
         :param headers: 请求头
+        :param method: 请求方法
+        :param data: 请求的数据
         """
-        self.url = url
+        # 解析curl字符串
+        parser = CurlParser(url)
+        self.url = parser.url
+        self.headers = parser.headers or headers or {}
+        self.method = parser.method or method or "GET"
+        self.data = parser.data or data or {}
+
         # 默认下载路径为当前目录下单downloads文件夹
         self.save_path = Path(save_path or 'downloads').absolute()
         # 文件名默认从url中获取
-        self.save_name = save_name or unquote(Path(url).name)
+        self.save_name = save_name or unquote(Path(self.url).name)
         # 路径不存在则创建
         if not self.save_path.exists():
             self.save_path.mkdir(parents=True)
 
-        self.headers = headers or {}
         self._sem = asyncio.Semaphore(concurrency)
         self._head_headers = None
 
@@ -260,7 +270,7 @@ class HSDownloader(object):
         end = end or self.content_length
         task_id = self.progress.add_task("", filename=f"任务: {index}", total=end - start)
 
-        req = Request("GET", self.url, sem=self._sem, headers=headers)
+        req = Request(self.method, self.url, sem=self._sem, headers=headers, data=self.data)
         try:
             content = b''
             resp = await req.request(stream=True)
@@ -294,6 +304,8 @@ async def main(
         save_path: str = None,
         save_name: str = None,
         headers: dict = None,
+        method: str = None,
+        data: dict = None
 ):
     """
     高速下载普通文件
@@ -301,17 +313,28 @@ async def main(
     :param save_path: 保存的文件夹，默认为./downloads文件夹
     :param save_name: 保存至的文件名， 默认从url中获取
     :param headers: 请求头
+    :param method: 请求方法
+    :param data: 请求的数据
     :return:
     """
+
+    if url == "curl":
+        lines = []
+        print("请输入从浏览器复制的curl字符串，并输入:wq结束：", end='')
+        for line in iter(input, ':wq'):
+            lines.append(line)
+        url = ''.join(lines).replace('\\', ' ')
+
     download = HSDownloader(
         url,
         save_path=save_path,
         save_name=save_name,
-        headers=headers
+        headers=headers,
+        method=method,
+        data=data,
     )
     await download.start()
 
 
 if __name__ == '__main__':
-    asyncio.run(main("http://10.0.0.237:6789/test_dl", headers={"user-agent": "Windows"}))
-    # fire.Fire(main)
+    fire.Fire(main)
